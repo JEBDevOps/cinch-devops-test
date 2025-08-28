@@ -52,3 +52,13 @@ variable "bucket_name" {
   type = string
   default = "cinch-test-log"
 }
+
+variable "app_instance_type" {
+  type = string
+  default = "t2.micro"
+}
+
+variable "app_instance_ami_id" {
+  type = string
+  default = "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+}
