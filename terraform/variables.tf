@@ -1,3 +1,8 @@
+variable "project_name" {
+  type = string
+  default = "cinch-test"
+}
+
 variable "region" {
   type = string
   default = "ap-southeast-1"
