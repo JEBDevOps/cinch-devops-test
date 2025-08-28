@@ -47,3 +47,8 @@ variable "bastion_instance_ami_id" {
   type = string
   default = "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2" # amazon linux 2
 }
+
+variable "bucket_name" {
+  type = string
+  default = "cinch-test-log"
+}
