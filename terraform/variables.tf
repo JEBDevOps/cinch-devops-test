@@ -43,6 +43,11 @@ variable "nat_instance_ami_id" {
   default = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64" # amazon linux 2023
 }
 
+variable "default_instance_type" {
+  type    = string
+  default = "t2.micro"
+}
+
 variable "allowed_ssh_cidr" {
   type    = string
   default = "" # IP Address of DevOps
