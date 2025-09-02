@@ -3,6 +3,16 @@ variable "project_name" {
   default = "cinch-test"
 }
 
+variable "aws_account_id" {
+  type    = string
+  default = "REDACTED"
+}
+
+variable "ecr_repository_name" {
+  type    = string
+  default = "react-ts-app"
+}
+
 variable "region" {
   type    = string
   default = "ap-southeast-1"
