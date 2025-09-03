@@ -3,6 +3,16 @@ variable "project_name" {
   default = "cinch-test"
 }
 
+variable "github_org" {
+  type    = string
+  default = "JEBDevOps"
+}
+
+variable "github_repo" {
+  type    = string
+  default = "react-ts-learning"
+}
+
 variable "aws_account_id" {
   type    = string
   default = "REDACTED"
