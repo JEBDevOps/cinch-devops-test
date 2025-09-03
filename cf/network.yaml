@@ -1,0 +1,277 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Base Network for the Cinch DevOps test
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR for the VPC
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR for the public subnet
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR for the private subnet
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-southeast-1a
+    Description: AZ for both subnets (single-AZ setup)
+  CreateNatInstance:
+    Type: String
+    AllowedValues: ['true','false']
+    Default: 'true'
+    Description: Set to 'true' to create a t2.micro NAT instance for the private subnet
+  KeyName:
+    Type: String
+    Default: NONE
+    Description: Optional EC2 KeyPair for SSH to the NAT instance (leave blank to skip)
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: SSM parameter for the latest Amazon Linux 2023 AMI (x86_64)
+
+Conditions:
+  UseNatInstance: !Equals [!Ref CreateNatInstance, 'true']
+  HaveKeyPair: !Not [ !Equals [ !Ref KeyName, "NONE" ] ]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-igw'
+
+  VpcIgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public'
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-private'
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-rt'
+
+  PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcIgwAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-private-rt'
+
+  PrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ---------- Optional NAT Instance ----------
+  NatSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: UseNatInstance
+    Properties:
+      GroupDescription: Allow SSH in (configurable) and NAT forwarding
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref VpcCidr
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref PrivateSubnetCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-nat-sg'
+
+  NatEip:
+    Type: AWS::EC2::EIP
+    Condition: UseNatInstance
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-nat-eip'
+
+  NatInstance:
+    Type: AWS::EC2::Instance
+    Condition: UseNatInstance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref NatInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet
+          GroupSet: [!Ref NatSecurityGroup]
+      KeyName: !If [HaveKeyPair, !Ref KeyName, !Ref 'AWS::NoValue']
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-nat'
+      UserData:
+        Fn::Base64:
+          !Sub
+            - |
+              #!/bin/bash
+              set -euxo pipefail
+              
+              # --- settings ---
+              VPC_CIDR=${VpcCidr}
+              
+              # --- enable IPv4 forwarding now and persist ---
+              sysctl -w net.ipv4.ip_forward=1
+              if ! grep -q '^net.ipv4.ip_forward *= *1' /etc/sysctl.conf; then
+                echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+              fi
+              
+              # --- detect egress interface (usually eth0/ens5) ---
+              IFACE="$(ip -o -4 route show to default | awk '{print $5}' | head -n1)"
+              
+              # --- install and enable iptables-services (AL2/CentOS7) ---
+              (dnf -y install iptables-services || yum -y install iptables-services)
+              systemctl enable --now iptables
+              
+              # --- flush old rules to avoid duplicates on reruns ---
+              iptables -t nat -F
+              iptables -F
+              
+              # --- NAT and forward rules ---
+              iptables -t nat -A POSTROUTING -o "$IFACE" -j MASQUERADE
+              iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+              iptables -A FORWARD -s "$VPC_CIDR" -j ACCEPT
+              
+              # --- persist rules for reboot ---
+              iptables-save > /etc/sysconfig/iptables
+
+            - { VpcCidr: !Ref VpcCidr }
+
+  NatEipAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Condition: UseNatInstance
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      InstanceId: !Ref NatInstance
+
+  NatInstanceRole:
+    Type: AWS::IAM::Role
+    Condition: UseNatInstance
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # SSM core so you can use Session Manager instead of SSH (no extra cost)
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-nat-role'
+
+  NatInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: UseNatInstance
+    Properties:
+      Roles: [!Ref NatInstanceRole]
+
+  PrivateDefaultRouteViaNat:
+    Type: AWS::EC2::Route
+    Condition: UseNatInstance
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref NatInstance
+
+# Outputs
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub '${AWS::StackName}:VpcId'
+  VpcCidr:
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub '${AWS::StackName}:VpcCidr'
+  PublicSubnetId:
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}:PublicSubnetId'
+  PrivateSubnetId:
+    Value: !Ref PrivateSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}:PrivateSubnetId'
+  PublicRouteTableId:
+    Value: !Ref PublicRouteTable
+  PrivateRouteTableId:
+    Value: !Ref PrivateRouteTable
+  InternetGatewayId:
+    Value: !Ref InternetGateway
+  NatInstanceId:
+    Condition: UseNatInstance
+    Value: !Ref NatInstance
+  NatEipAddress:
+    Condition: UseNatInstance
+    Value: !Ref NatEip

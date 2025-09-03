@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 bucket for logs
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: ""
+    Description: "Optional. Leave blank to let CloudFormation auto-generate a unique bucket name."
+
+Conditions:
+  HasCustomName: !Not [!Equals [!Ref BucketName, ""]]
+
+Resources:
+  LogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If [HasCustomName, !Ref BucketName, !Ref "AWS::NoValue"]
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+Outputs:
+  LogsBucketName:
+    Description: Bucket name
+    Value: !Ref LogsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}:LogsBucketName'
+  LogsBucketArn:
+    Description: Bucket ARN
+    Value: !GetAtt LogsBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}:LogsBucketArn'

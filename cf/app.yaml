@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private App EC2 with Docker running app on port 80
+
+Parameters:
+  NetworkStackName:
+    Type: String
+    Description: Name of the previously created network stack
+    Default: net-base
+  BastionStackName:
+    Type: String
+    Description: Name of the Bastion Stack
+    Default: bastion-host
+  S3StackName:
+    Type: String
+    Description: Name of the S3 Stack
+    Default: s3-stack
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to SSH into the instance
+    Default: cinch-test-key
+  InstanceType:
+    Type: String
+    Default: t2.micro
+  AmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    # Amazon Linux 2
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+Resources:
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AppS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListBucket
+                Effect: Allow
+                Action: [ 's3:ListBucket','s3:GetBucketLocation' ]
+                Resource:
+                  # arn:aws:s3:::<bucket>
+                  - !Join [ '', [ 'arn:aws:s3:::', !ImportValue { 'Fn::Sub': '${S3StackName}:LogsBucketName' } ] ]
+              - Sid: ObjectRW
+                Effect: Allow
+                Action: [ 's3:GetObject','s3:PutObject','s3:AbortMultipartUpload','s3:DeleteObject' ]
+                Resource:
+                  # arn:aws:s3:::<bucket>/*
+                  - !Join [ '', [ 'arn:aws:s3:::', !ImportValue { 'Fn::Sub': '${S3StackName}:LogsBucketName' }, '/*' ] ]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-app-role'
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref AppRole]
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP from inside VPC (default) or as provided
+      VpcId:
+        !ImportValue
+        'Fn::Sub': '${NetworkStackName}:VpcId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp:
+            !ImportValue
+            'Fn::Sub': '${NetworkStackName}:VpcCidr'
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId:
+            !ImportValue
+            'Fn::Sub': '${BastionStackName}:BastionSG'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-app-sg'
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref AppInstanceProfile
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId:
+            !ImportValue
+            'Fn::Sub': '${NetworkStackName}:PrivateSubnetId'
+          AssociatePublicIpAddress: false
+          GroupSet: [!Ref AppSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-app'
+      UserData:
+        Fn::Base64:
+          !Sub
+            - |
+              #!/bin/bash
+              set -euxo pipefail
+              yum update -y
+    
+              # Install Docker on Amazon Linux 2
+              amazon-linux-extras install docker -y
+              systemctl enable docker
+              systemctl start docker
+              usermod -aG docker ec2-user
+    
+              # Run sample app on port 80 (host port 80 -> container 80)
+              docker pull nginxdemos/hello
+              docker run -d --name hello --restart unless-stopped -p 80:80 nginxdemos/hello
+              
+              # --- AWS CLI + S3 smoke test ---
+              yum install -y awscli
+              hostname > /tmp/boot.txt
+              date >> /tmp/boot.txt
+              # Write a test object into the logs bucket to verify instance profile perms
+              aws s3 cp /tmp/boot.txt s3://${LogsBucketName}/app/boot-${AWS::StackName}.txt || true
+    
+              # Optional quick check
+              curl -s http://localhost:80 || true
+
+            - { LogsBucketName: !ImportValue { 'Fn::Sub': '${S3StackName}:LogsBucketName' } }
+
+Outputs:
+  AppInstanceId:
+    Value: !Ref AppInstance
+  AppPrivateIp:
+    Value: !GetAtt AppInstance.PrivateIp
+  AppSecurityGroupId:
+    Value: !Ref AppSecurityGroup
