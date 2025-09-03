@@ -78,14 +78,6 @@ resource "aws_security_group" "app" {
     security_groups = [aws_security_group.bastion.id]
   }
 
-  ingress {
-    description     = "Grafana from Bastion"
-    from_port       = 3000
-    to_port         = 3000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.bastion.id]
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -149,42 +141,40 @@ services:
       - "prometheus.scrape=true"
       - "prometheus.port=9113"
 
-  prometheus:
-    image: prom/prometheus:v2.30.3
+  grafana-agent:
+    image: grafana/agent:v0.20.0
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./agent.yaml:/etc/agent/agent.yaml
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:8.2.2
-    ports:
-      - "3000:3000"
     restart: unless-stopped
 EOF
 
-    # Create prometheus.yml
-    cat <<'EOF' > prometheus.yml
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: 'docker'
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-    relabel_configs:
-      # Only scrape containers that have a 'prometheus.scrape=true' label.
-      - source_labels: [__meta_docker_container_label_prometheus_scrape]
-        action: keep
-        regex: true
-      # Use the 'prometheus.port' label for the scrape port.
-      - source_labels: [__meta_docker_container_label_prometheus_port]
-        action: replace
-        target_label: __address__
-        regex: (.+)
-        replacement: $1
+    # Create agent.yaml
+    cat <<'EOF' > agent.yaml
+metrics:
+  wal_directory: /tmp/grafana-agent-wal
+  global:
+    scrape_interval: 15s
+    remote_write:
+      - url: ${var.grafana_prometheus_endpoint}
+        basic_auth:
+          username: ${var.grafana_prometheus_user_id}
+          password: ${var.grafana_api_key}
+  configs:
+    - name: docker-scrape
+      scrape_configs:
+        - job_name: 'docker'
+          docker_sd_configs:
+            - host: unix:///var/run/docker.sock
+          relabel_configs:
+            - source_labels: [__meta_docker_container_label_prometheus_scrape]
+              action: keep
+              regex: true
+            - source_labels: [__meta_docker_container_label_prometheus_port, __meta_docker_network_ip]
+              action: replace
+              target_label: __address__
+              regex: (.+);(.+)
+              replacement: $2:$1
 EOF
 
     # Start the stack

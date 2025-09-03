@@ -58,9 +58,27 @@ variable "availability_zone" {
 }
 
 variable "key_name" {
+  description = "The name of the key pair to use for the instances"
   type        = string
   default     = "cinch-test-key"
-  description = "The name of the EC2 key pair."
+}
+
+variable "grafana_prometheus_endpoint" {
+  description = "Grafana Cloud Prometheus remote write endpoint"
+  type        = string
+  sensitive   = true
+}
+
+variable "grafana_prometheus_user_id" {
+  description = "Grafana Cloud Prometheus user ID"
+  type        = string
+  sensitive   = true
+}
+
+variable "grafana_api_key" {
+  description = "Grafana Cloud API Key"
+  type        = string
+  sensitive   = true
 }
 
 variable "create_nat_instance" {
