@@ -14,8 +14,7 @@ variable "github_repo" {
 }
 
 variable "aws_account_id" {
-  type    = string
-  default = "REDACTED"
+  type = string
 }
 
 variable "ecr_repository_name" {
