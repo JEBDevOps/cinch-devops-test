@@ -78,6 +78,14 @@ resource "aws_security_group" "app" {
     security_groups = [aws_security_group.bastion.id]
   }
 
+  ingress {
+    description     = "Grafana from Bastion"
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion.id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -115,9 +123,72 @@ resource "aws_instance" "app" {
     systemctl start docker
     usermod -aG docker ec2-user
 
-    # The host port is 5000, container port is 80
-    docker pull nginxdemos/hello
-    docker run -d --name hello --restart unless-stopped -p 5000:80 nginxdemos/hello
+    # Install Docker Compose
+    yum install -y python3-pip
+    pip3 install docker-compose
+
+    # Create a directory for the monitoring stack
+    mkdir -p /home/ec2-user/monitoring
+    cd /home/ec2-user/monitoring
+
+    # Create docker-compose.yml
+    cat <<'EOF' > docker-compose.yml
+version: '3.7'
+services:
+  app:
+    image: nginxdemos/hello
+    ports:
+      - "5000:80"
+    restart: unless-stopped
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:0.10.0
+    command: -nginx.scrape-uri http://app/stub_status
+    restart: unless-stopped
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=9113"
+
+  prometheus:
+    image: prom/prometheus:v2.30.3
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:8.2.2
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+EOF
+
+    # Create prometheus.yml
+    cat <<'EOF' > prometheus.yml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'docker'
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    relabel_configs:
+      # Only scrape containers that have a 'prometheus.scrape=true' label.
+      - source_labels: [__meta_docker_container_label_prometheus_scrape]
+        action: keep
+        regex: true
+      # Use the 'prometheus.port' label for the scrape port.
+      - source_labels: [__meta_docker_container_label_prometheus_port]
+        action: replace
+        target_label: __address__
+        regex: (.+)
+        replacement: $1
+EOF
+
+    # Start the stack
+    docker-compose up -d
 
     # AWS CLI + S3 smoke test
     yum install -y awscli
