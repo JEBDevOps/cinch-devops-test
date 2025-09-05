@@ -131,6 +131,6 @@ variable "app_instance_type" {
 
 variable "app_instance_ami_id" {
   type        = string
-  default     = "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+  default     = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
   description = "The AMI ID for the application instance."
 }

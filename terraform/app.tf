@@ -97,98 +97,20 @@ data "aws_ssm_parameter" "app_ami" {
 
 # App EC2 Instance
 resource "aws_instance" "app" {
-  instance_type          = var.app_instance_type
-  ami                    = data.aws_ssm_parameter.app_ami.value
-  iam_instance_profile   = aws_iam_instance_profile.app.name
-  key_name               = var.key_name
-  subnet_id              = aws_subnet.private_subnet.id
-  vpc_security_group_ids = [aws_security_group.app.id]
+  instance_type               = var.app_instance_type
+  ami                         = data.aws_ssm_parameter.app_ami.value
+  iam_instance_profile        = aws_iam_instance_profile.app.name
+  key_name                    = var.key_name
+  subnet_id                   = aws_subnet.private_subnet.id
+  vpc_security_group_ids      = [aws_security_group.app.id]
+  user_data_replace_on_change = true
 
-  user_data = <<-EOT
-    #!/bin/bash
-    set -euxo pipefail
-    yum update -y
-
-    # Install Docker on Amazon Linux 2
-    amazon-linux-extras install docker -y
-    systemctl enable docker
-    systemctl start docker
-    usermod -aG docker ec2-user
-
-    # Install Docker Compose
-    yum install -y python3-pip
-    pip3 install docker-compose
-
-    # Create a directory for the monitoring stack
-    mkdir -p /home/ec2-user/monitoring
-    cd /home/ec2-user/monitoring
-
-    # Create docker-compose.yml
-    cat <<'EOF' > docker-compose.yml
-version: '3.7'
-services:
-  app:
-    image: nginxdemos/hello
-    ports:
-      - "5000:80"
-    restart: unless-stopped
-
-  nginx-exporter:
-    image: nginx/nginx-prometheus-exporter:0.10.0
-    command: -nginx.scrape-uri http://app/stub_status
-    restart: unless-stopped
-    labels:
-      - "prometheus.scrape=true"
-      - "prometheus.port=9113"
-
-  grafana-agent:
-    image: grafana/agent:v0.20.0
-    volumes:
-      - ./agent.yaml:/etc/agent/agent.yaml
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    restart: unless-stopped
-EOF
-
-    # Create agent.yaml
-    cat <<'EOF' > agent.yaml
-metrics:
-  wal_directory: /tmp/grafana-agent-wal
-  global:
-    scrape_interval: 15s
-    remote_write:
-      - url: ${var.grafana_prometheus_endpoint}
-        basic_auth:
-          username: ${var.grafana_prometheus_user_id}
-          password: ${var.grafana_api_key}
-  configs:
-    - name: docker-scrape
-      scrape_configs:
-        - job_name: 'docker'
-          docker_sd_configs:
-            - host: unix:///var/run/docker.sock
-          relabel_configs:
-            - source_labels: [__meta_docker_container_label_prometheus_scrape]
-              action: keep
-              regex: true
-            - source_labels: [__meta_docker_container_label_prometheus_port, __meta_docker_network_ip]
-              action: replace
-              target_label: __address__
-              regex: (.+);(.+)
-              replacement: $2:$1
-EOF
-
-    # Start the stack
-    docker-compose up -d
-
-    # AWS CLI + S3 smoke test
-    yum install -y awscli
-    hostname > /tmp/boot.txt
-    date >> /tmp/boot.txt
-    aws s3 cp /tmp/boot.txt s3://${aws_s3_bucket.logs.id}/app/boot-app.txt || true
-
-    # Optional quick check
-    curl -s http://localhost:5000 || true
-  EOT
+  user_data = templatefile("${path.module}/user_data_app.sh", {
+    grafana_prometheus_endpoint = var.grafana_prometheus_endpoint
+    grafana_prometheus_user_id  = var.grafana_prometheus_user_id
+    grafana_api_key             = var.grafana_api_key
+    s3_bucket_id                = aws_s3_bucket.logs.id
+  })
 
   tags = {
     Name = "${var.project_name}-app"
