@@ -106,10 +106,11 @@ locals {
 }
 
 resource "aws_instance" "wireguard" {
-  ami           = var.ami_id != "" ? var.ami_id : data.aws_ami.ubuntu.id
-  instance_type = var.instance_type
-  subnet_id     = var.subnet_ids[0]
+  ami                  = var.ami_id != "" ? var.ami_id : data.aws_ami.ubuntu.id
+  instance_type        = var.instance_type
+  subnet_id            = var.subnet_ids[0]
   iam_instance_profile = aws_iam_instance_profile.ssm_instance_profile.name
+  source_dest_check    = false
 
   vpc_security_group_ids = [aws_security_group.wireguard.id]
 
