@@ -5,16 +5,22 @@ exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 apt-get update && apt-get install -y wireguard iptables
 mkdir -p /etc/wireguard
 
+# --- detect egress interface ---
+IFACE="$(ip -o -4 route show to default | awk '{print $5}' | head -n1)"
+
 cat <<EOF > /etc/wireguard/wg0.conf
 [Interface]
 PrivateKey = ${server_private_key}
 Address = 10.8.0.1/24
 ListenPort = 51820
-PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o ens5 -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o ens5 -j MASQUERADE
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o __IFACE__ -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o __IFACE__ -j MASQUERADE
 
 ${peer_blocks}
 EOF
+
+# Replace placeholder with the actual interface name
+sed -i "s/__IFACE__/$IFACE/g" /etc/wireguard/wg0.conf
 
 sysctl -w net.ipv4.ip_forward=1
 systemctl enable wg-quick@wg0
