@@ -134,3 +134,9 @@ variable "app_instance_ami_id" {
   default     = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
   description = "The AMI ID for the application instance."
 }
+
+variable "enable_wireguard" {
+  description = "If set to true, the WireGuard server and related resources will be created."
+  type        = bool
+  default     = false
+}

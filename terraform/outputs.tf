@@ -40,13 +40,13 @@ output "app_security_group_id" {
 
 output "wireguard_client_config" {
   description = "WireGuard client configuration for the first client. Save this output to a .conf file."
-  value       = try(module.wireguard.client_configs[0], "No client configs generated. Implement the module improvements.")
+  value       = var.enable_wireguard ? try(module.wireguard[0].client_configs[0], "No client configs generated.") : "WireGuard is disabled."
   sensitive   = true
 }
 
 output "wireguard_server_ip" {
   description = "Public IP of the WireGuard server."
-  value       = module.wireguard.server_public_ip
+  value       = var.enable_wireguard ? try(module.wireguard[0].server_public_ip, "N/A") : "WireGuard is disabled."
 }
 
 output "github_actions_role_arn" {
