@@ -21,7 +21,7 @@ Test given to DevOps applicant by Cinch
   - they will also find instructions on how to access the AWS Console and how to authenticate using AWS CLI
 
 
-## SSH Key 
+## SSH Key
 
 Create an SSH key that we will be using for this test
 
@@ -216,3 +216,62 @@ aws cloudformation delete-stack --stack-name net-base
 
 aws cloudformation wait stack-delete-complete --stack-name net-base
 ```
+
+# Terraform Deployment
+
+This project can also be deployed using Terraform. The Terraform configuration will create a similar environment to the CloudFormation templates, but uses Tailscale for VPN access instead of a bastion host.
+
+## Tailscale Setup
+
+To deploy the infrastructure with Tailscale, you will need to perform a few manual setup steps first.
+
+### 1. Generate a Tailscale Auth Key
+
+The Terraform configuration requires a Tailscale authentication key to automatically register the new subnet router instance.
+
+1.  **Log in** to your Tailscale admin console at [https://login.tailscale.com/admin](https://login.tailscale.com/admin).
+2.  Navigate to the **Settings** page, then select **Auth keys**.
+3.  Click the **Generate auth key...** button.
+4.  Configure the key:
+    *   **Description:** Give it a clear description, like `Terraform AWS Subnet Router`.
+    *   **Reusable:** Select this option.
+    *   **Ephemeral:** Do not select this.
+    *   **Pre-authorized:** It's recommended to select this to avoid manually approving the new machine.
+    *   **Tags:** You can optionally add a tag, for example `tag:subnet-router`.
+5.  Click **Generate key**.
+6.  **Copy the generated key** (it will start with `tskey-auth-`). You will only be shown this key once, so make sure to copy it immediately.
+
+### 2. Create a `terraform.tfvars` file
+
+In the `terraform` directory, create a new file named `terraform.tfvars` and add the auth key you just generated:
+
+```
+tailscale_auth_key = "tskey-auth-..."
+```
+
+You will also need to provide your AWS Account ID in this file:
+
+```
+aws_account_id = "123456789012"
+```
+
+### 3. Deploy with Terraform
+
+Once the `terraform.tfvars` file is created, you can deploy the infrastructure:
+
+```shell
+cd terraform
+terraform init
+terraform apply
+```
+
+### 4. Approve Subnet Routes
+
+After `terraform apply` is complete, you need to enable the subnet routing in the Tailscale admin console:
+
+1.  Go to the **Machines** page in your Tailscale admin console.
+2.  Find the new `tf-subnet-router` machine.
+3.  Click the three-dot menu (`...`) next to it and select **Edit route settings...**.
+4.  Approve the subnet route (e.g., `10.0.2.0/24`).
+
+Once the route is approved, you will be able to access the private subnet resources from any device on your Tailscale network.
