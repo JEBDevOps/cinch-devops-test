@@ -140,3 +140,15 @@ variable "enable_wireguard" {
   type        = bool
   default     = false
 }
+
+variable "enable_tailscale" {
+  description = "If set to true, the Tailscale subnet router and related resources will be created."
+  type        = bool
+  default     = true
+}
+
+variable "tailscale_auth_key" {
+  description = "Tailscale auth key to register the subnet router. Should be a reusable or ephemeral key."
+  type        = string
+  sensitive   = true
+}

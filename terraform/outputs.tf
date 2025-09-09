@@ -53,3 +53,23 @@ output "github_actions_role_arn" {
   value       = aws_iam_role.github_actions_role.arn
   description = "The ARN of the IAM role for GitHub Actions OIDC"
 }
+
+output "tailscale_router_instance_id" {
+  description = "The ID of the Tailscale router instance."
+  value       = var.enable_tailscale ? try(aws_instance.tailscale_router[0].id, "N/A") : "Tailscale is disabled."
+}
+
+output "tailscale_router_public_ip" {
+  description = "The public IP address of the Tailscale router instance."
+  value       = var.enable_tailscale ? try(aws_instance.tailscale_router[0].public_ip, "N/A") : "Tailscale is disabled."
+}
+
+output "tailscale_router_private_ip" {
+  description = "The private IP address of the Tailscale router instance."
+  value       = var.enable_tailscale ? try(aws_instance.tailscale_router[0].private_ip, "N/A") : "Tailscale is disabled."
+}
+
+output "tailscale_router_security_group_id" {
+  description = "The ID of the Tailscale router's security group."
+  value       = var.enable_tailscale ? try(aws_security_group.tailscale[0].id, "N/A") : "Tailscale is disabled."
+}
