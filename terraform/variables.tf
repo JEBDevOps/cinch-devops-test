@@ -81,6 +81,18 @@ variable "grafana_api_key" {
   sensitive   = true
 }
 
+variable "grafana_loki_endpoint" {
+  description = "Grafana Cloud Loki endpoint"
+  type        = string
+  sensitive   = true
+}
+
+variable "grafana_loki_user_id" {
+  description = "Grafana Cloud Loki user ID"
+  type        = string
+  sensitive   = true
+}
+
 variable "create_nat_instance" {
   type        = bool
   default     = true

@@ -117,6 +117,8 @@ resource "aws_instance" "app" {
     grafana_prometheus_endpoint = var.grafana_prometheus_endpoint
     grafana_prometheus_user_id  = var.grafana_prometheus_user_id
     grafana_api_key             = var.grafana_api_key
+    grafana_loki_endpoint       = var.grafana_loki_endpoint
+    grafana_loki_user_id        = var.grafana_loki_user_id
     s3_bucket_id                = aws_s3_bucket.logs.id
   })
 

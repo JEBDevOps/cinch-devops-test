@@ -33,15 +33,37 @@ usermod -aG docker ec2-user
 echo "Creating monitoring directory..."
 mkdir -p /home/ec2-user/monitoring
 
+echo "Creating nginx.conf for stub_status..."
+cat <<'EOF' > /home/ec2-user/monitoring/nginx.conf
+server {
+    listen 80;
+    server_name localhost;
+
+    location / {
+        root   /usr/share/nginx/html;
+        index  index.html index.htm;
+    }
+
+    location /stub_status {
+        stub_status;
+        allow 127.0.0.1;
+        allow 172.16.0.0/12; # Allow from Docker network
+        deny all;
+    }
+}
+EOF
+
 echo "Creating docker-compose.yml..."
 cat <<'EOF' > /home/ec2-user/monitoring/docker-compose.yml
 version: '3.7'
 services:
   app:
-    image: nginxdemos/hello
+    image: nginx # Use the official nginx image
     ports:
       - "5000:80"
     restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
 
   nginx-exporter:
     image: nginx/nginx-prometheus-exporter:0.10.0
@@ -67,6 +89,21 @@ prometheus.remote_write "default" {
     url = "${grafana_prometheus_endpoint}"
     basic_auth {
       username = "${grafana_prometheus_user_id}"
+      password = "${grafana_api_key}"
+    }
+  }
+}
+
+loki.source.docker "loki_source" {
+  host = "unix:///var/run/docker.sock"
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "${grafana_loki_endpoint}"
+    basic_auth {
+      username = "${grafana_loki_user_id}"
       password = "${grafana_api_key}"
     }
   }
